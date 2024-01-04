@@ -1,0 +1,10 @@
+```{r}
+#| echo: false
+#| fig-height: 11
+#| fig-width: 12
+#| warning: false
+groupedModuleGSEAPlots(
+  dataset     = {{DATASET}},
+  module_list = {{BIN}}
+)
+```

@@ -1,0 +1,11 @@
+```{r}
+#| echo: false
+#| fig-height: 6
+#| fig-width: 12
+#| warning: false
+DimPlotHull(
+    .data     = {{REDUCTION}}_results,
+    grouping  = "{{GROUPING_VAR}}",
+    reduction = '{{REDUCTION}}'
+    )
+```

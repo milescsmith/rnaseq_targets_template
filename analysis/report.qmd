@@ -1,0 +1,1018 @@
+---
+title: "Cutaneous Lupus"
+author: "Miles Smith"
+date: today
+highlight-style: pygments
+output:
+  html: 
+    toc: true
+    toc-float: true
+    number-sections: true
+    keep-md: true
+    code-fold: true
+    embed-resources: true
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+always_allow_html: true
+editor:
+  markdown:
+    wrap: 72
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| echo: false
+options(width = 1200)
+
+here::i_am("analysis/report.qmd")
+source(here::here("code/project_parameters.R"))
+source(here::here("code/07_differential_expression_funcs.R"))
+source(here::here("code/09_ml_funcs.R"))
+source(here::here("code/14_report_funcs.R"))
+source(here::here("code/97_misc_functions.R"))
+source(here::here("code/98_palettes_funcs.R"))
+
+targets_store = here::here("_targets/")
+
+ggplot2::theme_set(ggpubr::theme_pubr())
+
+comparison_grouping_variable <-
+  project_params[["comparison_grouping_variable"]]
+
+diffused_comparison <- rlang::sym(comparison_grouping_variable)
+diffused_comparison <- rlang::enquo(diffused_comparison)
+targets::tar_load(study_md, store = targets_store)
+`%||%` <- rlang::`%||%`
+```
+
+```{r}
+#| echo: false
+#| include: false
+targets::tar_load(study_md, store = targets_store)
+targets::tar_load(res, store = targets_store)
+
+if (!is.null(project_params[["heatmap_row_annotations"]])){
+  heatmap_row_annotations <- list(project_params[["heatmap_row_annotations"]])
+} else{
+  heatmap_row_annotations <- list(colnames(dplyr::select(study_md, where(is.factor))))
+}
+```
+
+# Study demographics
+
+```{r}
+#| label: study_group_table
+#| echo: false
+#| warning: false
+suppressWarnings(
+  study_md |>
+    janitor::tabyl(comparison_grouping_variable) |>
+    janitor::adorn_pct_formatting(digits = 2) |>
+    knitr::kable() |>
+    kableExtra::kable_styling(
+      bootstrap_options =
+        c(
+          "striped",
+          "hover",
+          "condensed",
+          "responsive"
+          ),
+      full_width = FALSE
+      ) |>
+    kableExtra::column_spec(
+      1,
+      bold = TRUE,
+      border_right = TRUE,
+      width = "10em"
+      ) |>
+    kableExtra::column_spec(
+      2,
+      border_right = TRUE,
+      width = "10em"
+      ) |>
+    kableExtra::column_spec(
+      3,
+      border_right = FALSE,
+      width = "10em"
+      )
+)
+```
+
+# Differential Gene Expression {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: DE_table
+#| echo: false
+#| warning: false
+results_tbl <-
+  res |>
+    # purrr::map(alt_summary, lfcThreshold = params[["lfcThreshold"]]) |>
+  purrr::map(alt_summary, lfcThreshold = 0.1) |>
+    tibble::enframe() |>
+    tidyr::unnest(cols = c(value)) |>
+    dplyr::mutate(
+      `up %` = round(
+        100*(as.integer(up)/as.integer(total)),
+        digits = 2
+        ),
+      `down %` = round(
+        100*(as.integer(down)/as.integer(total)),
+        digits = 2
+        ),
+      `low counts %` = round(
+        100*(as.integer(lowcounts)/as.integer(total)),
+        digits = 2
+        ),
+      name = stringr::str_replace_all(
+        string = name,
+        pattern = "_",
+        replacement = " "
+        )
+    )
+
+  dplyr::select(
+    .data = results_tbl,
+    comparison = name,
+    up,
+    `up %`,
+    down,
+    `down %`,
+    `mean count cutoff` = ft,
+    `low counts` = lowcounts,
+    `low counts %`
+  ) |>
+  knitr::kable() |>
+  kableExtra::kable_styling(
+    bootstrap_options =
+      c(
+        "striped",
+        "hover",
+        "condensed",
+        "responsive"
+        )
+    ) |>
+  kableExtra::footnote(
+    paste(
+      alt_summary(res[[1]])$total,
+      "with nonzero total read count", "\nOutliers: ",
+      alt_summary(res[[1]])$outlier)
+    )
+```
+
+## 25 genes with largest negative log-fold change in experimental group {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: 25_top_down_DE
+#| include: false
+#| echo: false
+#| warning: false
+targets::tar_load(down_tables, store = targets_store)
+```
+
+```{r}
+#| label: 25_top_down_DE_tbl
+#| echo: false
+#| include: true
+#| results: asis
+#| warning: false
+
+purrr::iwalk(
+  .x = down_tables,
+  .f = \(dtbl, dtbl_name)
+  process_deg_kable(
+      deg_table = dtbl,
+      deg_table_name = dtbl_name,
+      .color = "tomato",
+      .direction = "down"
+    ) |>
+    print()
+)
+```
+
+## 25 genes with largest positive log-fold change in experimental group {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: 25_top_up_DE
+#| include: false
+#| echo: false
+#| warning: false
+targets::tar_load(up_tables, store = targets_store)
+```
+
+```{r}
+#| label: 25_top_up_DE_tbl
+#| echo: false
+#| include: true
+#| results: asis
+#| warning: false
+purrr::iwalk(
+  .x = up_tables,
+  .f = \(utbl, utbl_name)
+    process_deg_kable(
+      deg_table = utbl,
+      deg_table_name = utbl_name,
+      .color = "lightgreen",
+      .direction = "up"
+    ) |>
+    print()
+)
+```
+
+```{r}
+#| echo: false
+#| include: false
+#| warning: false
+targets::tar_load(deg_class,       store = targets_store)
+targets::tar_load(vsc_exprs,       store = targets_store)
+targets::tar_load(annotation_info, store = targets_store)
+targets::tar_load(group_pal,       store = targets_store)
+targets::tar_load(up_tables,       store = targets_store)
+targets::tar_load(down_tables,     store = targets_store)
+    
+comparison_groups <- project_params[["comparison_groups"]]
+deg_comparisons <- unique(c(names(up_tables), names(down_tables)))
+
+groupings <- list(
+  project_params[["comparison_grouping_variable"]],
+  "cluster",
+  "hierarchical_clustering"
+)
+
+groupings <- rlang::set_names(x = groupings, nm = groupings)
+```
+
+
+```{r}
+#| label: top_class_DE_disease_sort
+#| echo: false
+#| results: asis
+#| warning: false
+#| fig-width: 12
+#| fig-height: 9
+if(length(up_tables) > 0 & length(down_tables) > 0 ){
+  deg_heatmaps <-
+    purrr::map(deg_comparisons, \(comparison_group){
+      header <-
+        knitr::knit_expand(
+          text = "\n## Expression of top DE genes for {{GROUPING_VAR}}: {{COMPARISON_GROUPING}} {.tabset .tabset-fade .tabset-pills}",
+          COMPARISON_GROUPING = comparison_group,
+          GROUPING_VAR        = project_params[["comparison_grouping_variable"]]
+        )
+      each_comparison <-
+        purrr::map(groupings, \(group){
+          subheader <-
+            knitr::knit_expand(
+              text = "\n### Sorted by {{SORTING}}\n\n",
+              SORTING = group
+            )
+          dgehm <-
+            knitr::knit_expand(
+              file             = here::here("analysis/templates/comparisonHeatmaps.qmd"),
+              COMPARISON       = comparison_group,
+              UPTABLE          = paste0("up_tables[['", comparison_group, "']]"),
+              DOWNTABLE        = paste0("down_tables[['", comparison_group, "']]"),
+              DATASET          = "vsc_exprs",
+              METADATA         = "study_md",
+              COMPARISON_GROUP = project_params[["comparison_grouping_variable"]],
+              GROUPING         = group,
+              PALETTES         = "group_pal",
+              ROW_ANNOTATION   = heatmap_row_annotations,
+              FIG_WIDTH        = 12,
+              FIG_HEIGHT       = 9
+            )
+          c(subheader, unlist(dgehm))
+        })
+      c(header, unlist(each_comparison))
+    })
+  template_res <- knitr::knit_child(text = unlist(deg_heatmaps), quiet = TRUE)
+  cat(template_res, sep = '\n')
+}
+```
+
+```{r}
+#| label: deg_enrichment
+#| echo: false
+#| warning: false
+targets::tar_load(up_enrichment, store = targets_store)
+targets::tar_load(up_enrichment_degs, store = targets_store)
+targets::tar_load(down_enrichment, store = targets_store)
+targets::tar_load(down_enrichment_degs, store = targets_store)
+```
+
+```{r}
+#| results: asis
+#| echo: false
+#| warning: false
+if (!is_null_list(up_enrichment_degs)){
+  up_deg_enrichment <-
+    purrr::map(deg_comparisons, \(comparison_group){
+      header <-
+        knitr::knit_expand(
+          text = "\n## Pathway enrichment upgregulated genes for {{GROUPING_VAR}}: {{COMPARISON_GROUPING}} {.tabset .tabset-fade .tabset-pills}",
+          COMPARISON_GROUPING = comparison_group,
+          GROUPING_VAR        = project_params[["comparison_grouping_variable"]]
+        )
+      ontologies <-
+        purrr::map(
+          .x = names(up_enrichment[[comparison_group]]),
+          .f = \(x){
+            knitr::knit_expand(
+              file = here::here("analysis/templates/degPathwayPlots.qmd"),
+              TITLE = x,
+              ENRICH = paste0("up_enrichment[['", comparison_group, "']][['", x, "']]"),
+              LFC = paste0("up_enrichment_degs[['", comparison_group, "']][['", x, "']]")
+              )
+            })
+      c(header, unlist(ontologies))
+    })
+  template_res <- knitr::knit_child(text = unlist(up_deg_enrichment), quiet = TRUE)
+  cat(template_res, sep = '\n')
+}
+```
+
+```{r}
+#| results: asis
+#| echo: false
+#| warning: false
+if(!is_null_list(down_enrichment_degs)){
+  down_deg_enrichment <-
+    purrr::map(deg_comparisons, \(comparison_group){
+      header <-
+        knitr::knit_expand(
+          text = "\n## Pathway enrichment downgregulated genes for {{GROUPING_VAR}}: {{COMPARISON_GROUPING}} {.tabset .tabset-fade .tabset-pills}",
+          COMPARISON_GROUPING = comparison_group,
+          GROUPING_VAR        = project_params[["comparison_grouping_variable"]]
+        )
+      ontologies <-
+        purrr::map(
+          .x = names(down_enrichment[[comparison_group]]),
+          .f = \(x){
+            knitr::knit_expand(
+              file = here::here("analysis/templates/degPathwayPlots.qmd"),
+              TITLE = x,
+              ENRICH = paste0("down_enrichment[['", comparison_group, "']][['", x, "']]"),
+              LFC = paste0("down_enrichment_degs[['", comparison_group, "']][['", x, "']]")
+              )
+            })
+      c(header, unlist(ontologies))
+    })
+  template_res <- knitr::knit_child(text = unlist(down_deg_enrichment), quiet = TRUE)
+  cat(template_res, sep = '\n')
+}
+```
+
+## Volcano plot of gene expression {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: Volcano_plot_of_gene_expression
+#| echo: false
+#| results: asis
+#| warning: false
+volcanoes <- purrr::map(
+  .x = names(res),
+  .f = \(x){
+  header <-
+      knitr::knit_expand(
+        text       = "\n\n### Comparison of {{COMPARISON}}\n",
+        COMPARISON = stringr::str_replace(string = x, pattern = "_", replacement = " ")
+      )
+  volcano_plot <-
+    knitr::knit_expand(
+      file       = here::here("analysis/templates/volcanoPlots.qmd"),
+      X          = paste0("res[['",x,"']]"),
+      Y          = x,
+      FIG_HEIGHT = 9,
+      FIG_WIDTH  = 9
+    )
+    c(header, volcano_plot)
+  })
+template_res <- knitr::knit_child(text = unlist(volcanoes), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+```{r}
+#| label: Expression_of_selected_interferon-stimulated genes
+#| fig-height: 6
+#| fig-width: 9
+#| echo: false
+#| warning: false
+#| include: false
+targets::tar_load(ISGs, store = targets_store)
+targets::tar_load(module_ISGs, store = targets_store)
+
+IFN_module_genes <- rownames(module_ISGs)
+
+module_groups = 
+  list(
+    "selected interferon-stimulated genes" = ISGs,
+    "individual genes in the M1.2, M3.4, and M5.12 gene modules" = IFN_module_genes
+)
+
+row_groupings  <-
+  list(
+    project_params[["comparison_grouping_variable"]],
+    "cluster",
+    "hierarchical clustering"
+    )
+
+row_groupings <- rlang::set_names(x = row_groupings, nm = row_groupings)
+group_pal2 <- c(group_pal, generatePalettes(module_ISGs, "module"))
+```
+
+```{r}
+#| echo: false
+#| results: asis
+#| warning: false
+groups <-
+  purrr::imap(module_groups, \(module, title){
+    header <-
+      knitr::knit_expand(
+        text     = "\n\n## Expression of {{MODULE_GROUP}} {.tabset .tabset-fade .tabset-pills}\n",
+        MODULE_GROUP = title
+      )
+    each_comparison <-
+      purrr::map(row_groupings, \(group){
+        subheader <-
+          knitr::knit_expand(
+            text    = "\n\n### Sorted by {{SORTING}}\n\n",
+            SORTING = group
+          )
+        heatmap <-
+          knitr::knit_expand(
+            file           = here::here("analysis/templates/groupedComplexHeatmaps.qmd"),
+            DATASET        = "vsc_exprs",
+            VARIABLE_LIST  = list(module),
+            METADATA       = "study_md",
+            PALETTES       = "group_pal2",
+            ROW_GROUPING   = group,
+            ROW_ANNOTATION = heatmap_row_annotations,
+            COL_GROUPING   = "none",
+            COL_ANNOTATION = 'tibble::as_tibble(module_ISGs, rownames="obsv")',
+            FIG_WIDTH       = min(((1*length(module)) + 3.84), 12),
+            FIG_HEIGHT      = 6,
+            SCALE          = "TRUE"
+          )
+        c(subheader, heatmap)
+      })
+    c(header, unlist(each_comparison))
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+# Sample Clustering
+
+The eigenvalues for the first 100 principal components were used to
+calculate a random forest-based adjacency matrix, which was in turn used
+to calculate the gap statistic to determine the optimal *k*-clusters.
+
+```{r}
+#| label: Sample_Clustering_chart
+#| echo: false
+#| fig-height: 6
+#| fig-width: 6
+#| warning: false
+annotation_info |>
+  dplyr::count(
+    {{diffused_comparison}},
+    cluster
+    ) |>
+  tidyr::pivot_wider(
+    names_from = cluster,
+    values_from = n
+    ) |>
+  DT::datatable()
+
+annotation_info |>
+  tibble::as_tibble() |>
+  dplyr::select(
+    {{diffused_comparison}},
+    cluster
+  ) |>
+  dplyr::add_count({{diffused_comparison}}, name = "total") |>
+  dplyr::add_count({{diffused_comparison}}, cluster, name = "total_cluster") |>
+  dplyr::mutate(freq = total_cluster/total) |>
+  dplyr::distinct() |>
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = {{diffused_comparison}},
+      y = freq,
+      group = cluster,
+      fill = cluster
+      )
+    ) +
+  ggplot2::geom_col() +
+  ggplot2::labs(y = glue::glue("Proportion of {project_params[['comparison_grouping_variable']]} in cluster")) +
+  ggplot2::scale_fill_manual(values = group_pal$cluster) +
+  ggpubr::theme_pubr() +
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+# Clustering and variation of samples in reduced dimensional space {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: setup_reductions
+#| echo: false
+#| warning: false
+targets::tar_load(pca_results, store = targets_store)
+targets::tar_load(umap_results, store = targets_store)
+
+reductions = list(
+  PCA  = "pca",
+  UMAP = "umap"
+)
+
+groupings = list(
+  project_params[["comparison_grouping_variable"]],
+  "cluster"
+) |>
+  rlang::set_names(
+    nm = c(
+      project_params[["comparison_grouping_variable"]],
+      "K-means cluster"
+      )
+    )
+```
+
+```{r}
+#| label: dimplots
+#| echo: false
+#| include: false
+#| results: asis
+#| warning: false
+dimplots <-
+  purrr::imap(reductions, \(reduction, reduction_name){
+    header <-
+      knitr::knit_expand(
+        text = "\n## {{REDUCTION_NAME}} {.tabset .tabset-fade .tabset-pills}\n",
+        REDUCTION_NAME = reduction_name
+      )
+    each_group <-
+      purrr::imap(groupings, \(grouping_var, grouping_var_name){
+        subheader <-
+          knitr::knit_expand(
+            text = "\n### {{REDUCTION_NAME}} by {{GROUPING_VAR_NAME}} \n",
+            REDUCTION_NAME = reduction,
+            GROUPING_VAR_NAME = grouping_var_name
+          )
+        dimplot <-
+          knitr::knit_expand(
+            file           = here::here("analysis/templates/dimplots.qmd"),
+            REDUCTION = reduction,
+            GROUPING_VAR = grouping_var
+          )
+        c(subheader, dimplot)
+      })
+    c(header, unlist(each_group))
+  })
+template_res <- knitr::knit_child(text = unlist(dimplots), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+```{r}
+#| label: module_scores
+#| echo: false
+#| warning: false
+#| include: false
+targets::tar_load(all_module_scores, store = targets_store)
+targets::tar_load(ifn_modules, store = targets_store)
+targets::tar_load(inflame_modules, store = targets_store)
+targets::tar_load(ldg_modules, store = targets_store)
+targets::tar_load(module_scores_mat, store = targets_store)
+targets::tar_load(study_md, store = targets_store)
+targets::tar_load(group_pal, store = targets_store)
+
+row_groupings  <-
+  list(
+    project_params[["comparison_grouping_variable"]],
+    "cluster",
+    "hierarchical clustering"
+    )
+
+row_groupings <- rlang::set_names(x = row_groupings, nm = row_groupings)
+
+module_groups <-
+  list(
+    "Banchereau interferon modules"   = ifn_modules,
+    "Banchereau inflammation modules" = inflame_modules,
+    "Low-density granulocyte modules" = c("ldg_a", "ldg_b", "ldg_1.1", "ldg2.1")
+  )
+```
+
+# Module score heatmaps {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: module_score_plots
+#| results: asis
+#| echo: false
+#| warning: false
+modplots <-
+  purrr::imap(module_groups, \(module, title){
+    header <-
+      knitr::knit_expand(
+        text     = "\n## {{MODULE_GROUP}} scores {.tabset .tabset-fade .tabset-pills}\n",
+        MODULE_GROUP = title
+      )
+    each_comparison <-
+      purrr::imap(row_groupings, \(group, y){
+        subheader <-
+          knitr::knit_expand(
+            text    = "\n### Sorted by {{SORTING}}\n",
+            SORTING = group
+          )
+        ghm <-
+          knitr::knit_expand(
+            file            = here::here("analysis/templates/groupedComplexHeatmaps.qmd"),
+            DATASET         = "module_scores_mat",
+            VARIABLE_LIST   = list(module),
+            METADATA        = "study_md",
+            PALETTES        = "group_pal",
+            ROW_GROUPING    = group,
+            ROW_ANNOTATION  = heatmap_row_annotations,
+            COL_GROUPING    = "none",
+            COL_ANNOTATION  = "'none'",
+            SCALE           = "TRUE",
+            MODULE_GROUP    = stringr::str_replace(string = title, pattern = " ", replacement = "_"),
+            SAMPLE_GROUPING = stringr::str_replace(string = group, pattern = " ", replacement = "_"),
+            FIG_WIDTH       = min(((1*length(module)) + 3.84), 12),
+            FIG_HEIGHT      = 9
+          )
+        c(subheader, unlist(ghm))
+      })
+    c(header, unlist(each_comparison))
+  })
+template_res <- knitr::knit_child(text = unlist(modplots), quiet = TRUE)
+
+cat(template_res, sep = '\n', fill = TRUE)
+```
+
+```{r}
+#| echo: false
+#| include: false
+#| warning: false
+targets::tar_load(annotated_modules, store = targets_store)
+targets::tar_load(annotated_mod_list, store = targets_store)
+targets::tar_load(banchereau_modules, store = targets_store)
+targets::tar_load(ldg_modules, store = targets_store)
+targets::tar_load(metasignature_module, store = targets_store)
+targets::tar_load(module_annotation, store = targets_store)
+
+annotation_list <-
+  tibble::enframe(
+    x     = annotated_mod_list,
+    name  = "obsv",
+    value = "annotation"
+    ) |>
+  dplyr::mutate(
+    annotation =
+      stringr::str_extract(
+        string = annotation,
+        pattern = "(?<=([[:space:]]-[[:space:]])).+"
+        )
+    )
+
+module_groups <-
+  list(
+    "annotated Banchereau modules"    = annotation_list[['obsv']],
+    "all Banchereau modules"          = names(banchereau_modules)
+  )
+
+present_module_types <-
+  module_annotation |>
+  dplyr::filter(module %in% names(banchereau_modules)) |>
+  dplyr::pull(type) |>
+  forcats::fct_drop() |>
+  levels()
+```
+
+```{r}
+#| echo: false
+#| results: asis
+#| warning: false
+groups <-
+  purrr::imap(module_groups, \(module, title){
+    header <-
+      knitr::knit_expand(
+        text     = "\n\n## Scores for {{MODULE_GROUP}} {.tabset .tabset-fade .tabset-pills}\n",
+        MODULE_GROUP = title
+      )
+    each_comparison <-
+      purrr::map(row_groupings, \(group){
+        subheader <-
+          knitr::knit_expand(
+            text    = "\n\n### Sorted by {{SORTING}}\n\n",
+            SORTING = group
+          )
+        heatmap <-
+          knitr::knit_expand(
+            file           = here::here("analysis/templates/groupedComplexHeatmaps.qmd"),
+            DATASET        = "module_scores_mat",
+            VARIABLE_LIST  = list(module),
+            METADATA       = "study_md",
+            PALETTES       = "group_pal",
+            ROW_GROUPING   = group,
+            ROW_ANNOTATION = heatmap_row_annotations,
+            COL_GROUPING   = "type",
+            COL_ANNOTATION = "dplyr::rename(module_annotation, obsv = 'module')",
+            SCALE          = "TRUE",
+            FIG_WIDTH       = min(min(((1*length(module)) + 3.84), 12), 12),
+            FIG_HEIGHT      = 9
+          )
+        c(subheader, heatmap)
+      })
+    c(header, unlist(each_comparison))
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+## Expression of the annotated Banchereau modules {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| echo: false
+#| warning: false
+#| include: false
+targets::tar_load(all_module_scores_with_md, store = targets_store)
+targets::tar_load(module_comparisons_stats, store = targets_store)
+targets::tar_load(annotated_module_scores, store = targets_store)
+targets::tar_load(annotated_module_scores_pivot, store = targets_store)
+targets::tar_load(annotated_module_comparisons_stats, store = targets_store)
+targets::tar_load(comparison_groups, store = targets_store)
+
+module_bins <-
+  split(
+    x = unique(annotated_modules$module),
+    f = ceiling(seq_along(unique(annotated_modules$module)) / 9)
+    )
+```
+
+```{r}
+#| label: annotated_modules_score_violins
+#| echo: false
+#| results: asis
+#| warning: false
+groups <-
+  purrr::map(comparison_groups, \(grouping){
+    header <-
+      knitr::knit_expand(
+        text     = "\n\n### By {{GROUPING}} {.tabset .tabset-fade .tabset-pills}\n\n",
+        GROUPING = grouping
+      )
+    each_comparison <-
+      purrr::map(module_bins, \(bin){
+        knitr::knit_expand(
+          file       = here::here("analysis/templates/violinPanel.qmd"),
+          EXPR_TBL   = "annotated_module_scores_pivot",
+          GROUPING   = grouping,
+          STATS_TBL  = "annotated_module_comparisons_stats",
+          VALUES_VAR = "score",
+          FACET_VAR  = "module",
+          BIN        = list(bin),
+          FILTER_VAR = "module"
+        )
+      })
+    c(header, unlist(each_comparison))
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+# WGCNA
+
+```{r}
+#| include: false
+#| echo: false
+#| warning: false
+targets::tar_load(wgcna_modules, store = targets_store)
+```
+
+## Expression similarity dendrogram
+
+```{r}
+#| label: WGCNA_Expression_similarity_dendrogram
+#| echo: false
+#| fig-height: 6
+#| fig-width: 10
+#| warning: false
+WGCNA::plotDendroAndColors(
+  dendro = wgcna_modules$dendrograms[[1]],
+  colors = wgcna_modules$colors[wgcna_modules$blockGenes[[1]]],
+  groupLabels = "Module colors",
+  main = "Gene dendrogram and module colors in block 1",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05
+)
+```
+
+## Expression of identified modules {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| include: false
+#| echo: false
+#| warning: false
+targets::tar_load(wgcna_scores_pivot, store = targets_store)
+targets::tar_load(wgcna_comparisons_stats, store = targets_store)
+
+module_bins <-
+  split(
+    x = unique(wgcna_scores_pivot$module),
+    f = ceiling(seq_along(unique(wgcna_scores_pivot$module)) / 9)
+    )
+```
+
+```{r}
+#| label: wgcna_score_violins
+#| fig-height: 8
+#| fig-width: 12
+#| warning: false
+#| echo: false
+#| results: asis
+groups <-
+  purrr::map(comparison_groups, \(grouping){
+    header <-
+      knitr::knit_expand(
+        text     = "\n\n### By {{GROUPING}} {.tabset .tabset-fade .tabset-pills}\n\n",
+        GROUPING = grouping
+      )
+    each_comparison <-
+      purrr::map(module_bins, \(bin){
+        if (length(bin) > 1){
+          knitr::knit_expand(
+            file       = here::here("analysis/templates/violinPanel.qmd"),
+            EXPR_TBL   = "wgcna_scores_pivot",
+            GROUPING   = grouping,
+            STATS_TBL  = "wgcna_comparisons_stats",
+            VALUES_VAR = "score",
+            FACET_VAR  = "module",
+            BIN        = list(bin),
+            FILTER_VAR = "module"
+          )
+        } else {
+          knitr::knit_expand(
+              file       = here::here("analysis/templates/singleViolin.qmd"),
+              EXPR_TBL   = "wgcna_scores_pivot",
+              GROUPING   = grouping,
+              STATS_TBL  = "wgcna_comparisons_stats",
+              VALUES_VAR = "score",
+              FACET_VAR  = "module",
+              BIN        = list(c(bin, "")),
+              FILTER_VAR = "module"
+          )
+        }
+      })
+    c(header, unlist(each_comparison))
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+## WGCNA eigenvalues {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#| label: wgcna_eigenvalues
+#| echo: false
+#| warning: false
+#| fig-height: 9
+#| fig-width: 11
+targets::tar_load(wgcna_scores, store = targets_store)
+
+wgcna_module_colors <- paste0("ME", targets::tar_read(wgcna_module_colors, store = targets_store))
+wgcna_scores_mat <-
+  module_scores_mat[stringr::str_detect(string = rownames(module_scores_mat), pattern = "^ME"),]
+```
+
+```{r}
+#| label: WGCNA_eigenvalues_heatmap
+#| results: asis
+#| echo: false
+#| warning: false
+groups <-
+  purrr::map(row_groupings, \(group){
+    header <-
+      knitr::knit_expand(
+        text    = "\n\n### Sorted by {{SORTING}}\n\n",
+        SORTING = group
+      )
+    heatmap <-
+      knitr::knit_expand(
+        file           = here::here("analysis/templates/groupedComplexHeatmaps.qmd"),
+        DATASET        = "wgcna_scores_mat",
+        VARIABLE_LIST  = list(wgcna_module_colors),
+        METADATA       = "study_md",
+        PALETTES       = "group_pal",
+        ROW_GROUPING   = group,
+        ROW_ANNOTATION = heatmap_row_annotations,
+        COL_GROUPING   = "none",
+        COL_ANNOTATION = "'none'",
+        SCALE          = "FALSE",
+        FIG_WIDTH      = min(((1*length(wgcna_module_colors)) + 3.84), 12),
+        FIG_HEIGHT     = 6
+      )
+    c(header, heatmap)
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+## Gene ontology GSEA of WGCNA modules
+
+```{r}
+#| label: wgcna_gsea
+#| echo: false
+#| fig-height: 11
+#| fig-width: 12
+#| warning: false
+targets::tar_load(MEplotting, store = targets_store)
+
+module_bins <-
+  split(
+    x = unique(MEplotting$module),
+    f = ceiling(seq_along(unique(MEplotting$module)) / 6)
+  )
+```
+
+```{r}
+#| label: wgcna_gsea_plots
+#| echo: false
+#| results: asis
+#| warning: false
+groups <-
+  purrr::map(.x = module_bins, .f = \(bin){
+    if (length(bin) > 1){
+      gsea_plots <-
+        knitr::knit_expand(
+          file    = here::here("analysis/templates/groupedModuleGSEAPlots.qmd"),
+          DATASET = "MEplotting",
+          BIN     = list(bin)
+        )
+    } else {
+      gsea_plots <-
+        knitr::knit_expand(
+          file    = here::here("analysis/templates/singleModuleGSEAPlot.qmd"),
+          DATASET = "MEplotting",
+          BIN     = list(c(bin, ""))
+          )
+    }
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+```
+
+# Use of gene expression modules in classifying samples.
+
+```{r}
+#| label: wgcna_cluster_confusion
+#| echo: false
+#| warning: false
+targets::tar_load(module_rf_models, store = targets_store)
+targets::tar_load(wgcna_rf_models, store = targets_store)
+
+module_groups <-
+  list(
+    WGCNA      = wgcna_rf_models,
+    Banchereau = module_rf_models
+  )
+```
+
+```{r}
+#| label: wgcna_cluster_importance
+#| echo: false
+#| results: asis
+#| warning: false
+groups <-
+  purrr::imap(module_groups, \(module_group, title){
+    header <-
+      knitr::knit_expand(
+        text     = "\n\n## {{MODULE_GROUP}} scores {.tabset .tabset-fade .tabset-pills}\n",
+        MODULE_GROUP = title
+      )
+    each_comparison <-
+      purrr::map(comparison_groups, \(group){
+        subheader <-
+          knitr::knit_expand(
+            text    = "\n### Sorted by {{SORTING}}\n",
+            SORTING = group
+          )
+        heatmap <-
+          knitr::knit_expand(
+            file      = here::here("analysis/templates/randomForestPlots.qmd"),
+            MODULE_GROUP = title,
+            GROUP = group,
+            CLASS_VAR = group
+          )
+        c(subheader, heatmap)
+      })
+    c(header, unlist(each_comparison))
+  })
+template_res <- knitr::knit_child(text = unlist(groups), quiet = TRUE)
+cat(template_res, sep = '\n')
+
+```
+
+```{r}
+sessioninfo::session_info()
+```

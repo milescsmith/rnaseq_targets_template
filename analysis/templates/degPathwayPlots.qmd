@@ -1,0 +1,11 @@
+```{r}
+#| echo: false
+#| fig-height: 6
+#| fig-width: 15
+#| warning: false
+degPathwayPlots(
+  title        = "{{TITLE}}",
+  enrichResult = {{ENRICH}},
+  enrichLFC    = {{LFC}}
+)
+```

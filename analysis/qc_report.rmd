@@ -1,0 +1,290 @@
+---
+params: 
+  set_title:
+    label: "report title"
+    value: "Project"
+    input: text
+  set_author: 
+    label: "author"
+    value: "Miles Smith"
+    input: text
+title: "`r params$set_title` analysis QC"
+author: "`r params$set_author`"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    highlight: "pygments"
+    toc: TRUE
+    toc_depth: 3
+    toc_float: TRUE
+  pdf_document:
+    highlight: "pygments"
+    toc: TRUE
+    toc_depth: 3
+always_allow_html: true
+---
+
+```{css, echo=FALSE}
+    body .main-container {
+      max-width: 1500px !important;
+      width: 1500px !important;
+    }
+    body {
+      max-width: 1500px !important;
+    }
+    caption {
+      color: black;
+      font-weight: bold;
+      font-size: 1.0em;
+    }
+```
+
+```{r setup, include=FALSE}
+options(width = 1200)
+knitr::opts_chunk$set(echo = FALSE, root.dir = here(), warning = FALSE, message = FALSE)
+theme_set(theme_pubr())
+```
+
+\newpage
+
+# Data processing of RNAseq data
+
+## Overview of sample characteristics:
+
+```{r}
+tar_load(final_md)
+tar_load(md)
+tar_load(tx_files)
+final_md <- as_tibble(final_md, rownames = "sample_name")
+```
+
+```{r echo=FALSE}
+message(str_glue("{nrow(final_md)} samples selected for analysis"))
+message(str_glue("{length(names(tx_files))} files found"))
+if (!all(md$sample_name %in% names(tx_files))){
+  message("The following samples did not have a matching sequencing file:")
+  message(md$sample_name[which(md$sample_name %nin% names(tx_files))])
+} else {
+  message("All files match a metadata entry.")
+}
+```
+
+## Sample QC filtering
+
+Samples with a PC1 > `r pc1_zscore_threshold` (the red lines) and/or PC2 zscore > `r pc2_zscore_threshold` (the green lines) were dropped from analysis.  Points in red represent samples that were dropped.
+```{r QC PCA, fig.width=6, fig.height=6}
+tar_load(qc_pca)
+
+vline <- function(x = 0, color = "red") {
+  list(
+    type = "line", 
+    y0 = 0, 
+    y1 = 1, 
+    yref = "paper",
+    x0 = x, 
+    x1 = x, 
+    line = list(color = color)
+  )
+}
+
+hline <- function(y = 0, color = "green") {
+  list(
+    type = "line", 
+    x0 = 0, 
+    x1 = 1, 
+    xref = "paper",
+    y0 = y, 
+    y1 = y, 
+    line = list(color = color)
+  )
+}
+
+qc_pca %>%
+  mutate(
+    kept = as_factor(
+      if_else(
+        condition = sample_name %in% setdiff(names(tx_files), final_md$sample_name),
+        true = "no",
+        false = "yes"
+      )
+    )
+  ) %>%
+  plot_ly(
+    type = "scattergl",
+    mode = "markers",
+    x = ~PC1,
+    y = ~PC2,
+    color = ~kept,
+    colors = c("blue","red"),
+    marker = list(size = 7.5,
+                  line = list(color = 'rgba(0, 0, 0, .8)',
+                              width = 1)),
+    text = ~paste('<br>Subject: ', sample_name,
+                  '<br>Sex: ', sex,
+                  '<br>Ethnicity: ', ethnicity,
+                  '<br>Disease class: ', comparison_grouping_variable,
+                  '<br>Run: ', run_id,
+                  '<br>In dataset? ', kept),
+    hovertemplate = '%{text}',
+    showlegend = FALSE,
+    alpha = 0.5,
+    name = ""
+  ) %>%
+  layout(
+    shapes = list(
+      vline(project_params[["pc1_zscore_threshold"]]*sd(qc_pca[["PC1"]]) + mean(qc_pca[["PC1"]])),
+      vline(-project_params[["pc1_zscore_threshold"]]*sd(qc_pca[["PC1"]]) + mean(qc_pca[["PC1"]])),
+      
+      hline(project_params[["pc2_zscore_threshold"]]*sd(qc_pca[["PC2"]]) + mean(qc_pca[["PC2"]])),
+      hline(-project_params[["pc2_zscore_threshold"]]*sd(qc_pca[["PC2"]]) + mean(qc_pca[["PC2"]]))
+    )
+  )
+```
+
+```{r removed in PCA qc}
+tar_load(outlier_samples)
+if (length(outlier_samples) > 0) {
+  filter(final_md, sample_name %in% outlier_samples) %>%
+    select(sample_name, visit_ref, subject_ref, sex, ethnicity, age) %>%
+    kable(caption = "Removing the following samples:") %>%
+    kable_styling(
+      bootstrap_options =
+        c(
+          "striped",
+          "hover",
+          "condensed",
+          "responsive"
+        ),
+     full_width = FALSE
+     )
+}
+```
+
+### Overall correlation between samples
+```{r overall correlation, fig.width=12, fig.height=9}
+tar_load(c(sample_dists, annotation_info, group_pal))
+pheatmap(
+  as.matrix(sample_dists),
+  clustering_distance_rows = sample_dists,
+  clustering_distance_cols = sample_dists, 
+  annotation_row = annotation_info,
+  show_rownames = FALSE,
+  show_colnames = TRUE,
+  annotation_colors = group_pal, fontsize_col = 6,
+  angle_col = 45
+)
+```
+
+# Data quality
+
+## MA-plot
+```{r}
+tar_load(res)
+```
+
+This MA plot is of shrunken log2 fold changes (using the *apeglm* package), in which actual fold changes are adjusted to compensate for the high variablity of genes with few counts.
+
+Dots in red indicate a significant expression difference between Control and SLE.
+
+```{r MA plot, echo=FALSE}
+for(m in seq_along(res)){
+  p <-
+    res[[m]] %>%
+    as_tibble(rownames = "gene") %>%
+    mutate(
+      sig = case_when(
+        padj < 0.05 ~ "Significant",
+        padj >= 0.05 ~ "Not significant",
+        is.na(padj) ~ "Not significant"
+        ) %>% as_factor(),
+      ) %>%
+    filter(
+      log2FoldChange >= 0.00001 | log2FoldChange <= -0.00001
+      ) %>%
+    ggplot(
+      aes(
+        x = baseMean,
+        y = log2FoldChange,
+        color = sig
+        )
+      ) +
+    scale_color_manual(
+      values = c(`Not significant` = "grey30", Significant = "red"),
+      guide = guide_legend(title = "")) +
+    geom_point(
+      alpha = 0.75,
+      size = 1
+      ) +
+    scale_x_log10() +
+    labs(title = names(res)[[m]])
+  print(p)
+}
+```
+
+## Dispersion estimates
+```{r dispersion}
+tar_load(disp_plot)
+disp_plot
+```
+
+## Surrogate Variable Analysis
+
+Surrogate variables are unknown, unmodeled, or latent sources of noise hidden in the data.  The `sva` package was used to estimate the first `r num_sva` surrogate variables which were then introduced into the DESeq design formula to control for their effects.
+
+```{r sva}
+loadd(dds_with_scores, sva_graph_data)
+plot_sva(sva_graph_data = sva_graph_data)
+```
+
+
+# Sample Sanity check
+
+To determine if there is a gross mixup of samples, examine the expression of sex-specific transcripts to ensure that only female-subject samples express "XIST" and male-subject samples "DDX3Y:
+```{r message=FALSE, warning=FALSE, include=FALSE}
+tar_load(vsc_exprs)
+```
+
+```{r sex-specific gene expression}
+sex_specific_genes <- tibble::tibble(
+  chr =
+    c(
+      rep("Y",16),
+      rep("X",2)
+      ),
+  symbol =
+    c(
+      "DDX3Y","EIF1AY",
+      "KDM5D","NLGN4Y",
+      "PCDH11Y","PRORY",
+      "PRY","PRY2",
+      "RPS4Y1","RPS4Y2",
+      "TBL1Y","TMSB4Y",
+      "USP9Y","UTY",
+      "VCY","ZFY",
+      "XIST","ZFX"
+      )
+  ) %>%
+  filter(symbol %in% rownames(vsc_exprs))
+
+range_bound = 5
+zscore_range <- c(-range_bound:range_bound)
+
+t(vsc_exprs)[,c(sex_specific_genes[['symbol']])] %>%
+  pheatmap(
+    scale='column',
+    fontsize = 6,
+    show_rownames = FALSE,
+    annotation_row = annotation_info[,c("sex", comparison_grouping_variable)],
+    annotation_colors = group_pal,
+    annotation_col = column_to_rownames(sex_specific_genes, "symbol"),
+    cluster_cols = FALSE,
+    breaks = zscore_range,
+    color = viridis(n = length(zscore_range)-1, option = "D"),
+    border_color = NA,
+    angle=315)
+```
+
+
+```{r}
+sessioninfo::session_info()
+```
