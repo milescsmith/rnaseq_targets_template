@@ -25,14 +25,10 @@ source(here::here("code/98_palettes_funcs.R"))
 source(here::here("code/99_output_funcs.R"))
 source(here::here("code/column_and_gene_lists.R"))
 options(tidyverse.quiet = TRUE)
-future::plan(
-  strategy = future::multisession,
-  workers = parallelly::availableCores(which = "max")
-)
-future::plan(
-  strategy = future::multisession,
-  workers = parallelly::availableCores(which = "max")
-)
+# future::plan(
+#   strategy = future::multisession,
+#   workers = parallelly::availableCores(which = "max")
+# )
 utils::globalVariables("where")
 targets::tar_config_set(
   workers = parallelly::availableCores(which = "max")
@@ -51,7 +47,6 @@ list(
   targets::tar_target(
     name = samples_to_remove,
     command    = project_params[["manual_sample_removal"]],
-    command = findOrgDb(project_params[["sample_species"]]),
     cue = targets::tar_cue(mode = "never"),
     deployment = "main"
   ),
@@ -112,9 +107,10 @@ list(
   ),
 
   #### annot ####
-  targets::tar_target(
+  tarchetypes::tar_file_read(
     name = annot,
-    command    = read_csv(annotation_file),
+    command = project_params[["annotation_file"]],
+    read = readr::read_csv(!!.x),
     packages   = "readr"
   ),
 
@@ -145,7 +141,7 @@ list(
     command =
       prep_data_import(
         count_files        = tx_files,
-        sample_metadata    = all_study_md,
+        sample_metadata    = final_md,
         aligner            = project_params[["aligner"]],
         annotations        = annot,
         # minimum_gene_count = 1,
@@ -167,46 +163,8 @@ list(
     cue = targets::tar_cue(mode = "never")
   ),
 
-  #### processed_data ####
-  # targets::tar_target(
-  #   name = bl_ctrl_processed_data,
-  #   command = process_counts(
-  #     imported_counts              = bl_ctrl_imported_data,
-  #     comparison_grouping_variable = project_params[["grouping_column"]],
-  #     batch_variable               = project_params[["batch_variable"]],
-  #     study_design                 = project_params[["study_design"]],
-  #     pc1_zscore_threshold         = project_params[["pc1_zscore_threshold"]],
-  #     pc2_zscore_threshold         = project_params[["pc2_zscore_threshold"]],
-  #     BPPARAM                      = BPPARAM,
-  #     use_combat                   = project_params[["use_combat"]],
-  #     minimum_gene_count           = project_params[["minimum_gene_count"]],
-  #     prune_majority_zero          = TRUE,
-  #     sva_control_genes            = project_params[["sva_control_genes"]],
-  #     num_sva                      = project_params[["sva_num"]],
-  #     method                       = project_params[["process_method"]],
-  #     control_group                = project_params[["control_group"]]
-  #   ),
-  #   packages =
-  #     c(
-  #       "edgeR",
-  #       "DESeq2",
-  #       "sva",
-  #       "Rfast",
-  #       "limma",
-  #       "dplyr",
-  #       "purrr",
-  #       "tibble",
-  #       "stringr",
-  #       "rlang",
-  #       "tidyr",
-  #       "magrittr",
-  #       "gtools"
-  #     ),
-  #   deployment = "main",
-  #   cue = targets::tar_cue("never")
-  # ),
   targets::tar_target(
-    name = all_processed_data,
+    name = processed_data,
     command = process_counts(
       imported_counts              = imported_data,
       comparison_grouping_variable = project_params[["grouping_column"]],
@@ -254,7 +212,7 @@ list(
 
   targets::tar_target(
     name = sva_graph_data,
-    command = plot_sva(bl_ctrl_processed_data[["sva_graph_data"]]),
+    command = plot_sva(processed_data[["sva_graph_data"]]),
     packages =
       c(
         "ggplot2",
@@ -274,7 +232,7 @@ list(
   ),
   targets::tar_target(
     name = vsc_exprs,
-    command = bl_ctrl_processed_data[["variance_stabilized_counts"]],
+    command = processed_data[["variance_stabilized_counts"]],
     packages =
       c(
         "tibble",
@@ -293,18 +251,6 @@ list(
   targets::tar_target(
     name = banchereau_module_annotations_file,
     command = project_params[["banchereau_module_annotations"]],
-    format = "file"
-  ),
-
-  targets::tar_target(
-    name = ldg_module_file,
-    command = project_params[["ldg_modules"]],
-    format = "file"
-  ),
-
-  targets::tar_target(
-    name = metasignature_module_file,
-    command = project_params[["metasignature_modules"]],
     format = "file"
   ),
 
@@ -386,7 +332,7 @@ list(
       ) |>
       dplyr::left_join(
         dplyr::select(
-          .data = all_study_md,
+          .data = final_md,
           sample_name,
           responder_status
         )
@@ -570,36 +516,6 @@ list(
       )
   ),
 
-  #### res ####
-  targets::tar_target(
-    name = res,
-    command =
-      create_results_list(
-        processed_data               = processed_data,
-        method                       = project_params[['process_method']],
-        object                       = dataset_with_scores,
-        comparison_grouping_variable = project_params[["comparison_grouping_variable"]],
-        shrink_lfc                   = project_params[["shrink_lfc"]],
-        BPPARAM                      = project_params[["BPPARAM"]],
-        design                       = processed_data[['design_matrix']]
-      ),
-    packages =
-      c(
-        "purrr",
-        "DESeq2",
-        "tibble",
-        "rlang",
-        "magrittr",
-        "edgeR",
-        "matrixStats",
-        "rstatix",
-        "dplyr",
-        "stringr"
-      ),
-    deployment = "main",
-    cue = targets::tar_cue(mode = "never")
-  ),
-
   targets::tar_target(
     name = variable_down_deg_pca,
     command =
@@ -660,9 +576,9 @@ list(
             sep = " - "
           )
       ) %>%
-      dplyr::select(-type) %>%
-      tibble::deframe()
-      },
+        dplyr::select(-type) %>%
+        tibble::deframe()
+    },
     packages =
       c(
         "dplyr",
@@ -677,7 +593,7 @@ list(
       dplyr::select(
         .data = module_scores,
         sample_name,
-        tidyselect::one_of(annotated_modules[["module"]])
+        tidyselect::all_of(annotated_modules[["module"]])
       ),
     packages =
       c(
@@ -859,16 +775,6 @@ list(
       dplyr::select(sample_name, disease_class),
     deployment = "main",
     packages = c("tibble", "dplyr")
-  ),
-
-  targets::tar_target(
-    name = annotated_module_scores,
-    command =
-      module_scores |>
-      dplyr::select(
-        sample_name,
-        tidyselect::all_of(annotated_modules[["module"]])
-      )
   ),
 
   targets::tar_target(
@@ -1155,11 +1061,11 @@ list(
       rlang::set_names(
         x = unnamed_up_enrichment,
         nm = names(res)
-        ) |>
+      ) |>
       purrr::map(
         .f = purrr::discard,
         .p = is.null
-        ) |>
+      ) |>
       purrr::map(
         .f = purrr::discard,
         .p = empty_enrichment
@@ -1235,7 +1141,7 @@ list(
       rlang::set_names(
         x = unnamed_down_enrichment,
         nm = names(res)
-        ) |>
+      ) |>
       purrr::map(
         .f = purrr::discard,
         .p = is.null
@@ -1250,13 +1156,13 @@ list(
     name = unnamed_down_enrichment_degs,
     command =
       if(!is.null(unlist(down_enrichment))){
-          get_enrichment_fcs(
-            enrichResult = down_enrichment[[res_length]],
-            degResult = res[[res_length]]
-          )
-        } else {
-          list()
-        },
+        get_enrichment_fcs(
+          enrichResult = down_enrichment[[res_length]],
+          degResult = res[[res_length]]
+        )
+      } else {
+        list()
+      },
     pattern = map(res_length),
     iteration = "list",
     packages = "dplyr"
@@ -1268,7 +1174,7 @@ list(
       if(
         length(unnamed_down_enrichment_degs[[1]][["gene_ontology"]] > 0) |
         length(unnamed_down_enrichment_degs[[1]][["reactome"]] > 0)
-        ){
+      ){
         rlang::set_names(x = unnamed_down_enrichment_degs, nm = names(res))
       } else {
         list()
@@ -1358,7 +1264,7 @@ list(
             "HSIC-Lasso-identified gene modules that",
             "distinguish responders from non-responders"
           )
-        ) +
+      ) +
       ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)),
     deployment = "main",
     packages =
@@ -1576,7 +1482,7 @@ list(
             from = 12,
             to = 30,
             by = 1
-            )
+          )
         ),
       verbose = 5
     ),
@@ -1651,32 +1557,32 @@ list(
   targets::tar_target(
     name = minimum_down_degs_no_overlap,
     command = 25, # Joan wants this set at 25, doesn't believe 10
-      # minimum_down_degs |>
-      # dplyr::group_by(
-      #   number_degs,
-      #   responder_status
-      # ) |>
-      # dplyr::summarise(
-      #   min = min(module_score),
-      #   max = max(module_score)
-      # ) |>
-      # tidyr::pivot_wider(
-      #   names_from = responder_status,
-      #   values_from = c(min, max)
-      # ) |>
-      # dplyr::mutate(
-      #   overlap =
-      #     DescTools::Overlap(
-      #       c(min_non_responder, max_non_responder),
-      #       c(min_responder, max_responder)
-      #     )
-      # ) |>
-      # dplyr::ungroup() |>
-      # dplyr::slice_min(
-      #   order_by = overlap,
-      #   with_ties = FALSE
-      # ) |>
-      # dplyr::pull(number_degs),
+    # minimum_down_degs |>
+    # dplyr::group_by(
+    #   number_degs,
+    #   responder_status
+    # ) |>
+    # dplyr::summarise(
+    #   min = min(module_score),
+    #   max = max(module_score)
+    # ) |>
+    # tidyr::pivot_wider(
+    #   names_from = responder_status,
+    #   values_from = c(min, max)
+    # ) |>
+    # dplyr::mutate(
+    #   overlap =
+    #     DescTools::Overlap(
+    #       c(min_non_responder, max_non_responder),
+    #       c(min_responder, max_responder)
+    #     )
+    # ) |>
+    # dplyr::ungroup() |>
+    # dplyr::slice_min(
+    #   order_by = overlap,
+    #   with_ties = FALSE
+    # ) |>
+    # dplyr::pull(number_degs),
     packages = c(
       "dplyr",
       "DescTools"
@@ -1732,32 +1638,32 @@ list(
   targets::tar_target(
     name = minimum_up_degs_no_overlap,
     command = 25, # Joan wants this set at 25, doesn't believe 10
-      # minimum_up_degs |>
-      # dplyr::group_by(
-      #   number_degs,
-      #   responder_status
-      # ) |>
-      # dplyr::summarise(
-      #   min = min(module_score),
-      #   max = max(module_score)
-      # ) |>
-      # tidyr::pivot_wider(
-      #   names_from = responder_status,
-      #   values_from = c(min, max)
-      # ) |>
-      # dplyr::mutate(
-      #   overlap =
-      #     DescTools::Overlap(
-      #       c(min_non_responder, max_non_responder),
-      #       c(min_responder, max_responder)
-      #     )
-      # ) |>
-      # dplyr::ungroup() |>
-      # dplyr::slice_min(
-      #   order_by = overlap,
-      #   with_ties = FALSE
-      # ) |>
-      # dplyr::pull(number_degs),
+    # minimum_up_degs |>
+    # dplyr::group_by(
+    #   number_degs,
+    #   responder_status
+    # ) |>
+    # dplyr::summarise(
+    #   min = min(module_score),
+    #   max = max(module_score)
+    # ) |>
+    # tidyr::pivot_wider(
+    #   names_from = responder_status,
+    #   values_from = c(min, max)
+    # ) |>
+    # dplyr::mutate(
+    #   overlap =
+    #     DescTools::Overlap(
+    #       c(min_non_responder, max_non_responder),
+    #       c(min_responder, max_responder)
+    #     )
+    # ) |>
+    # dplyr::ungroup() |>
+    # dplyr::slice_min(
+    #   order_by = overlap,
+    #   with_ties = FALSE
+    # ) |>
+    # dplyr::pull(number_degs),
     packages = c(
       "dplyr",
       "DescTools"
@@ -1898,7 +1804,7 @@ list(
         "workflows",
         "tune"
       ),
-  cue = targets::tar_cue("never")
+    cue = targets::tar_cue("never")
   ),
 
   targets::tar_target(
@@ -1907,7 +1813,7 @@ list(
       rlang::set_names(
         x    = unnamed_wgcna_rf_models,
         nm   = comparison_groups
-        ),
+      ),
     packages = "rlang"
   ),
 
@@ -2014,7 +1920,7 @@ list(
       ) |>
       dplyr::left_join(
         dplyr::select(
-          all_study_md,
+          final_md,
           sample_name,
           responder_status,
           subject_ref
@@ -2048,7 +1954,7 @@ list(
       c(
         "dplyr",
         "tibble"
-        )
+      )
   ),
 
   targets::tar_target(
@@ -2063,7 +1969,7 @@ list(
           train_proportion   = 0.75,
           print              = FALSE
         )
-        },
+      },
     pattern   = map(comparison_groups),
     iteration = "list",
     packages  =
@@ -2324,7 +2230,7 @@ list(
           targets_recode(
             target_list = names(all_module_scores_with_md),
             thing_to_unquote_splice = annotated_mod_list
-            ),
+          ),
         x  = all_module_scores_with_md
       ),
     packages = c(
@@ -2622,7 +2528,7 @@ list(
       dplyr::filter(
         .data = module_scores_pivot,
         module %in% annotated_modules[["module"]]
-        ),
+      ),
     packages = "dplyr"
   ),
 
@@ -2760,7 +2666,7 @@ list(
             "PC",
             up_number_of_genes,
             sep="_"
-            )
+          )
         }
       ),
     pattern = map(up_genes_use_all, up_number_of_genes),
@@ -2899,9 +2805,9 @@ list(
               "Metagene scores using indicated number of most",
               "up-regulated in responders genes"
             )
-          ),
-          width = 40,
         ),
+        width = 40,
+      ),
     deployment = "main"
   ),
   targets::tar_target(
@@ -2965,7 +2871,7 @@ list(
         data = dplyr::filter(
           .data = minimum_up_degs_stats_all_samples,
           number_degs == length(responder_up_genes)
-          )
+        )
       ) +
       ggpubr::theme_pubr() +
       ggplot2::theme(
@@ -3068,7 +2974,7 @@ list(
         .x = module_comparisons_stats,
         .f = dplyr::filter,
         module %in% annotated_modules$module
-        ),
+      ),
     packages =
       c(
         "purrr",
@@ -3095,16 +3001,16 @@ list(
           .data = module_annotation,
           .cols = "type",
           use_palettes = "ggsci::default_ucscgb"
-          ),
+        ),
         list(
           "chr" = paletteer::paletteer_d(
             palette = getRandomPalette(2),
             n = 2
-            ) |>
-          as.character() |>
-          rlang::set_names(nm = c("X", "Y"))
-          )
-        ),
+          ) |>
+            as.character() |>
+            rlang::set_names(nm = c("X", "Y"))
+        )
+      ),
     packages =
       c(
         "purrr",
@@ -3266,14 +3172,9 @@ list(
     packages = "data.table"
   ),
 
-  tar_render(
+  tar_quarto(
     name = primary_report,
-    path          = "analysis/report.rmd",
-    params        = list(
-      set_author = "Miles Smith",
-      set_title  = "BLAST responders vs non-responders"
-    ),
-    output_dir    = "reports/",
+    path          = "analysis/report.qmd",
     packages      =
       c(
         "rmarkdown",
@@ -3293,57 +3194,7 @@ list(
         "formattable",
         "grid",
         "stringr"
-    ),
+      ),
     quiet = FALSE
   )
-
-  # tar_render(
-  #   name = test_report,
-  #   path          = "analysis/testing.rmd",
-  #   params        = list(
-  #     set_author = "Miles Smith",
-  #     set_title  = "Shakedown run"
-  #   ),
-  #   output_dir    = "reports/",
-  #   packages      =
-  #     c(
-  #       "rmarkdown",
-  #       "knitr",
-  #       "targets",
-  #       "here",
-  #       "ggplot2",
-  #       "ggpubr",
-  #       "rlang",
-  #       "magrittr",
-  #       "janitor",
-  #       "kableExtra",
-  #       "flextable",
-  #       "genefilter",
-  #       "tidyselect",
-  #       "purrr",
-  #       "formattable"
-  #     ),
-  #   quiet = FALSE
-  # )
-#
-#   tar_render(
-#     name = qc_report,
-#     path          =  "analysis/qc_report.rmd",
-#     params        = list(
-#       set_title   = "BLAST Optimal Responder-vs-Non-responder RNAseq QC",
-#       set_author  = "Miles Smith"
-#     ),
-#     output_dir    = "reports/"
-#   )
-
-  # tar_render(
-  #   name = pathway_report,
-  #   path          =  "analysis/pathway_gex_plots.rmd",
-  #   params        = list(
-  #     set_title   = "Expression of pathway genes",
-  #     set_author  = "Miles Smith"
-  #   ),
-  #   output_dir    = "reports/",
-  #   packages      = c("tidyverse", "markdown", "knitr", "ComplexHeatmap", "targets", "grid", "magrittr", "rlang", "viridis", "circlize", "ggpubr", "ggbeeswarm", "paletteer", "ggtext", "tidyHeatmap")
-  # )
 )

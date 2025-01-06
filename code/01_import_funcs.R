@@ -66,75 +66,75 @@ import_metadata <- function(
         forcats::fct_relevel(control_group)
     )
 
-  if (!is.null(extra_controls_metadata_file)){
-    non_project_controls =
-      read_md_file(
-        path = extra_controls_metadata_file,
-        sheet = extra_controls_metadata_sheet,
-        skip = extra_controls_metadata_skip
-      ) |>
-      janitor::clean_names() |>
-      dplyr::filter({{diffused_control_col_sym}} == extra_controls_ident) |>
-      dplyr::rename({{sample_name_column}} := nova_seq_sample_id) |>
-      dplyr::mutate({{grouping_column}} := "control") |>
-      dplyr::select(
-        tidyselect::all_of(
-          c(
-            sample_name_column,
-            grouping_column,
-            project_column,
-            regression_columns,
-            filter_column
-          )
-        )
-      )
-
-    if (!all(names(study_metadata) %in% names(non_project_controls))){
-      missing_columns <- names(study_metadata)[!names(study_metadata) %in% names(non_project_controls)]
-      for (x in missing_columns) {
-        non_project_controls <- tibble::add_column(non_project_controls, {{x}} := "NA")
-      }
-      if (comparison_grouping_variable %in% missing_columns){
-        non_project_controls[[comparison_grouping_variable]] <- "control"
-      }
-    }
-
-    non_project_controls <-
-      dplyr::mutate(
-        .data = non_project_controls,
-        dplyr::across(
-          where(is.character) & -sample_name_column,
-          forcats::as_factor
-        ),
-        {{diffused_sample_name}} :=
-          make_clean_names(
-            string = {{diffused_sample_name}},
-            case = "all_caps"
-          )
-      )
-
-    study_metadata <-
-      dplyr::bind_rows(
-        study_metadata,
-        non_project_controls
-      )
-
-    if (!is.null(filter_value)){
-      if (is.numeric(filter_value)){
-        study_metadata <-
-          dplyr::filter(
-            .data = study_metadata,
-            filter_column > filter_value
-          )
-      } else if (is.character(filter_value)){
-        study_metadata <-
-          dplyr::filter(
-            .data = study_metadata,
-            filter_column %nin% filter_value
-          )
-      }
-    }
-  }
+  # if (!is.null(extra_controls_metadata_file)){
+  #   non_project_controls =
+  #     read_md_file(
+  #       path = extra_controls_metadata_file,
+  #       sheet = extra_controls_metadata_sheet,
+  #       skip = extra_controls_metadata_skip
+  #     ) |>
+  #     janitor::clean_names() |>
+  #     dplyr::filter({{diffused_control_col_sym}} == extra_controls_ident) |>
+  #     dplyr::rename({{sample_name_column}} := nova_seq_sample_id) |>
+  #     dplyr::mutate({{grouping_column}} := "control") |>
+  #     dplyr::select(
+  #       tidyselect::all_of(
+  #         c(
+  #           sample_name_column,
+  #           grouping_column,
+  #           project_column,
+  #           regression_columns,
+  #           filter_column
+  #         )
+  #       )
+  #     )
+  #
+  #   if (!all(names(study_metadata) %in% names(non_project_controls))){
+  #     missing_columns <- names(study_metadata)[!names(study_metadata) %in% names(non_project_controls)]
+  #     for (x in missing_columns) {
+  #       non_project_controls <- tibble::add_column(non_project_controls, {{x}} := "NA")
+  #     }
+  #     if (comparison_grouping_variable %in% missing_columns){
+  #       non_project_controls[[comparison_grouping_variable]] <- "control"
+  #     }
+  #   }
+  #
+  #   non_project_controls <-
+  #     dplyr::mutate(
+  #       .data = non_project_controls,
+  #       dplyr::across(
+  #         where(is.character) & -sample_name_column,
+  #         forcats::as_factor
+  #       ),
+  #       {{diffused_sample_name}} :=
+  #         make_clean_names(
+  #           string = {{diffused_sample_name}},
+  #           case = "all_caps"
+  #         )
+  #     )
+  #
+  #   study_metadata <-
+  #     dplyr::bind_rows(
+  #       study_metadata,
+  #       non_project_controls
+  #     )
+  #
+  #   if (!is.null(filter_value)){
+  #     if (is.numeric(filter_value)){
+  #       study_metadata <-
+  #         dplyr::filter(
+  #           .data = study_metadata,
+  #           filter_column > filter_value
+  #         )
+  #     } else if (is.character(filter_value)){
+  #       study_metadata <-
+  #         dplyr::filter(
+  #           .data = study_metadata,
+  #           filter_column %nin% filter_value
+  #         )
+  #     }
+  #   }
+  # }
 
   dplyr::distinct(study_metadata)
 }

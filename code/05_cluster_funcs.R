@@ -213,3 +213,4 @@ rf_based_ident_clusters <- function(
     clusters = sample_clusters,
     gap_stat = kmeans_gap_stat
   )
+}
