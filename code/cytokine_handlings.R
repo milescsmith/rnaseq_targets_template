@@ -17,10 +17,10 @@ cytokine_dataset <-
     sheet="main",
     skip=1
     ) %>%
-  select(
+  dplyr::select(
     NovaSeq_Sample_ID, Cytokine_Sample_ID, Responder, one_of(cytokines)
   ) %>%
-  mutate(
+    dplyr::mutate(
     NovaSeq_Sample_ID = janitor::make_clean_names(NovaSeq_Sample_ID, case="screaming_snake"),
     Responder =
       dplyr::recode(
@@ -30,7 +30,7 @@ cytokine_dataset <-
         ) %>%
       forcats::as_factor()
     ) %>%
-  pivot_longer(
+  tidyr::pivot_longer(
     cols = one_of(cytokines),
     names_to="cytokine",
     values_to = "exprs"
@@ -38,24 +38,24 @@ cytokine_dataset <-
 
 cytokine_dataset_stats <-
   cytokine_dataset %>%
-  filter(
+  dplyr::filter(
     str_detect(string=Cytokine_Sample_ID, pattern="BSL$"),
     !is.na(Responder),
     !is.na(exprs),
     cytokine != "LIF"
     ) %>%
-  group_by(cytokine) %>%
+  dplyr::group_by(cytokine) %>%
   rstatix::wilcox_test(formula = exprs ~ Responder) |>
   rstatix::add_xy_position(group = "Responder", scales = "free_y") |>
   rstatix::add_significance()
 
 cytokine_dataset %>%
-  filter(
-    str_detect(string=Cytokine_Sample_ID, pattern="BSL$"),
+  dplyr::filter(
+    stringr::str_detect(string=Cytokine_Sample_ID, pattern="BSL$"),
     !is.na(Responder),
     !is.na(exprs),
     cytokine != "LIF",
-    cytokine %in% pull(filter(cytokine_dataset_stats, p.signif != "ns"), cytokine)
+    cytokine %in% purrr::pull(dplyr::filter(cytokine_dataset_stats, p.signif != "ns"), cytokine)
   ) %>%
   ggpubr::ggboxplot(
     x="Responder",
@@ -64,7 +64,7 @@ cytokine_dataset %>%
     palette = "Set1"
   ) +
   ggbeeswarm::geom_beeswarm(groupOnX = TRUE) +
-  ggpubr::stat_pvalue_manual(data = filter(cytokine_dataset_stats, p.signif != "ns") ) +
-  facet_wrap(vars(cytokine), scales = "free_y") +
+  ggpubr::stat_pvalue_manual(data = dplyr::filter(cytokine_dataset_stats, p.signif != "ns") ) +
+  ggplot2::facet_wrap(ggplot2::vars(cytokine), scales = "free_y") +
   ggpubr::theme_pubr() +
-  theme(axis.text.x = element_text(angle=45,vjust=1,hjust=1))
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle=45,vjust=1,hjust=1))

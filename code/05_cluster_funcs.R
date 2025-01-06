@@ -110,7 +110,7 @@ ident_clusters <- function(
   library(matrixStats)
   library(FasterMatrixMath)
   kmeans_gap_stat <-
-    parallelCluster::clusGap(
+    cluster::clusGap(
       x = rf_distance_mat,
       FUNcluster = kmeans,
       nstart = nstart,
@@ -132,14 +132,14 @@ ident_clusters <- function(
     )
 
   k_clusters <-
-    kmeans(
+    stats::kmeans(
       x = rf_distance_mat,
       centers = new_optimal_k,
       nstart = 25
     )
 
   sample_clusters <-
-    enframe(x = k_clusters[["cluster"]],
+    tibble::enframe(x = k_clusters[["cluster"]],
             name = "sample_name",
             value = "cluster")
 
@@ -174,7 +174,7 @@ rf_based_ident_clusters <- function(
   library(matrixStats)
   library(FasterMatrixMath)
   kmeans_gap_stat <-
-    parallelCluster::clusGap(
+    cluster::clusGap(
       x = rf_distance_mat,
       FUNcluster = kmeans,
       nstart = nstart,
@@ -196,14 +196,14 @@ rf_based_ident_clusters <- function(
     )
 
   k_clusters <-
-    kmeans(
+    stats::kmeans(
       x = rf_distance_mat,
       centers = new_optimal_k,
       nstart = 25
     )
 
   sample_clusters <-
-    enframe(x = k_clusters[["cluster"]],
+    tibble::enframe(x = k_clusters[["cluster"]],
             name = "sample_name",
             value = "cluster")
 
