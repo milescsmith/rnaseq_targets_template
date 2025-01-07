@@ -38,7 +38,7 @@ targets::tar_config_set(
 
 list(
 
-  tar_option_set(workspace_on_error = TRUE),
+  targets::tar_option_set(workspace_on_error = TRUE),
   targets::tar_target(
     name = sample_species_org,
     command = findOrgDb(project_params[["sample_species"]])
@@ -164,40 +164,175 @@ list(
   ),
 
   targets::tar_target(
-    name = processed_data,
-    command = process_counts(
+    name = pre_qc_dge,
+    command = pre_qc_process(
       imported_counts              = imported_data,
       comparison_grouping_variable = project_params[["grouping_column"]],
-      batch_variable               = project_params[["batch_variable"]],
       study_design                 = project_params[["study_design"]],
-      pc1_zscore_threshold         = project_params[["pc1_zscore_threshold"]],
-      pc2_zscore_threshold         = project_params[["pc2_zscore_threshold"]],
-      BPPARAM                      = BPPARAM,
-      use_combat                   = project_params[["use_combat"]],
-      minimum_gene_count           = project_params[["minimum_gene_count"]],
-      prune_majority_zero          = TRUE,
-      sva_control_genes            = project_params[["sva_control_genes"]],
-      num_sva                      = project_params[["sva_num"]],
-      method                       = project_params[["process_method"]],
-      control_group                = project_params[["control_group"]]
+      minimum_gene_count           = project_params[["minimum_gene_count"]]
     ),
     packages =
       c(
         "edgeR",
-        "DESeq2",
-        "sva",
-        "Rfast",
-        "limma",
+        "matrixStats",
         "dplyr",
-        "purrr",
-        "tibble",
-        "stringr",
-        "rlang",
-        "tidyr",
         "magrittr",
-        "gtools"
       ),
     cue = targets::tar_cue(mode = "never")
+  ),
+
+  targets::tar_target(
+    name = preliminary_design,
+    command = {
+      model.matrix(
+        object = study_design,
+        data   = magrittr::extract(
+          imported_counts[["metadata"]],
+          colnames(pre_qc_dge[["dge"]]),
+        )
+      ) %>%
+      magrittr::set_colnames(
+        c("Intercept", colnames(.)[2:ncol(.)])
+      )
+    },
+    packages = c(
+      "magrittr"
+    )
+  ),
+
+  targets::tar_target(
+    name = outlier_qc,
+    command = remove_outliers(
+      object            = pre_qc_dge[["dge"]],
+      pc1_zscore_cutoff = pc1_zscore_threshold,
+      pc2_zscore_cutoff = pc2_zscore_threshold,
+      design            = preliminary_design
+    ),
+    packages = c(
+      "irlba",
+      "limma",
+      "tibble",
+      "dplyr"
+    )
+  ),
+
+  targets::tar_target(
+    name = pre_sva_dge,
+    command = create_pre_sva_object(
+      outlier_qc         = outlier_qc,
+      sample_grouping    = pre_qc_dge[["grouping"]],
+      minimum_gene_count = project_params[["minimum_gene_count"]]
+    ),
+    packages = c("edgeR", "magrittr")
+  ),
+
+  targets::tar_target(
+    name = sva_res,
+    command = calc_sva(
+        object        = pre_sva_dge,
+        model_design  = study_design,
+        n.sva         = num_sva,
+        control_genes = sva_control_genes
+      ),
+    packages = c("sva", "magrittr", "rlang", "dplyr", "tibble")
+  ),
+
+  targets::tar_target(
+    name = post_qc_dge,
+    command =
+        edgeR::calcNormFactors(
+          object = sva_res[["data_object"]]
+        ),
+    packages = "edgeR"
+  ),
+
+  targets::tar_target(
+    name = mm,
+    command =
+      model.matrix(
+        object = sva_res[["design"]],
+        data = sva_res[["data_object"]][["samples"]]
+      )
+  ),
+
+  targets::tar_target(
+    name = voom_exprs,
+    command =
+      limma::voomWithQualityWeights(
+        counts    = post_qc_dge,
+        design    = mm,
+        plot      = TRUE,
+        save.plot = TRUE
+      ),
+      packages = "limma"
+    ),
+
+  targets::tar_target(
+    fit <-
+      limma::lmFit(
+        object = voom_exprs,
+        design = mm,
+        method = "robust"
+      ),
+      packages = "limma"
+  ),
+
+  targets::tar_target(
+    name = comparisons,
+    command = {
+      tibble::as_tibble(
+        gtools::combinations(
+          n = length(unique(imported_counts[["metadata"]][[comparison_grouping_variable]])),
+          r = 2,
+          v = unique(as.character(imported_counts[["metadata"]][[comparison_grouping_variable]])),
+          repeats.allowed = FALSE
+        )
+      ) %>%
+      rlang::set_names(
+        nm = c("V1","V2")
+      ) %>%
+      dplyr::transmute(
+        name = paste0(V2, "_vs_", V1),
+        compare = paste(V2, "-", V1)
+      ) %>%
+      tibble::deframe()
+    },
+    packages = c("gtools", "rlang", "dplyr", "tibble")
+  ),
+
+  targets::tar_target(
+    name = coeff,
+    command = {
+      stringr::str_remove(
+        string = comparisons,
+        pattern = "\\s-\\s[:graph:]+"
+      ) %>%
+      stringr::str_trim() %>%
+      paste0(comparison_grouping_variable, .)
+    },
+    packages = "stringr"
+  ),
+
+  targets::tar_target(
+    name = contra_matrix,
+    command =
+      limma::makeContrasts(
+        contrasts = comparisons,
+        levels =
+          c(
+            levels(post_qc_dge[["samples"]][[comparison_grouping_variable]]),
+            stringr::str_extract_all(
+              string  = as.character(sva_res[["design"]])[[2]],
+              pattern = "SV[0-9]")[[1]]
+          )
+      ),
+    packages = c("limma", "stringr")
+  ),
+
+  targets::tar_target(
+    name     = efit,
+    command  = limma::eBayes(limma::contrasts.fit(fit, contra_matrix)),
+    packages = "limma"
   ),
 
   targets::tar_target(

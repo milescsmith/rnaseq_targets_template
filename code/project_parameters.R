@@ -25,10 +25,6 @@ project_params = list(
 
   main_sample_sheet               = NULL,
   main_sample_sheet_skip          = 0,
-  extra_controls_metadata_file    = NULL,
-  extra_controls_sample_sheet     = NULL, #"metadata/NovaSeq_Sample_List.xlsx",
-  extra_controls_ident_col        = NULL, #"disease_class",
-  extra_controls_iden             = NULL, #"control",
   annotation_file                 = "references/gencode_v32_virus_tx2gene_v1.2.csv",
   clinical_file                   = NULL, #"metadata/BLAST_200312.xlsx",
 
@@ -44,11 +40,6 @@ project_params = list(
   heatmap_row_annotations         = c("disease_class",  "race_code", "cluster"),
 
   #### Setup project variables ####
-  projects_to_include             = NULL,
-  projects_to_exclude             = "Xencor",
-
-  groups_to_include               = c("control","MS","CLE","unknown","RA","SS"),
-  groups_to_exclude               = NULL,
   study_design                    = ~ disease_class,
 
   comparison_grouping_variable    = "disease_class",
@@ -79,8 +70,8 @@ project_params = list(
   # number of top variable genes to use for WGCNA
   n_var_genes                     = 20000,
 
-  banchereau_modules              = "references/banchereau_modules.csv",
-  banchereau_module_annotations   = "references/banchereau_module_annotations.csv",
+  banchereau_modules              = "references/hipc_modules.csv",
+  banchereau_module_annotations   = "references/hipc_annotations.csv",
   ldg_modules                     = "references/ldg_modules.csv",
   metasignature_modules           = "references/metasignature_module.csv"
 

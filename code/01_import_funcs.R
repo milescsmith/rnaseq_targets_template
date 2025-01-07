@@ -397,12 +397,6 @@ process_counts <-
         ),
       )
 
-    concentration_col <-
-      grep(
-        x = colnames(imported_counts[["metadata"]]),
-        pattern="concentration",
-        value = TRUE
-      )
 
     message("Creating preliminary study design...")
     preliminary_design <-
